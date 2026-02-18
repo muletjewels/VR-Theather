@@ -21,3 +21,7 @@ If a default video URL points to a local IP, the page will still load, but the v
 - HTML / CSS / JavaScript
 - A-Frame (WebXR)
 - Optional: PeerJS (if syncing features are enabled in this version)
+
+
+## License
+Personal use only (non-commercial). See LICENSE file.
