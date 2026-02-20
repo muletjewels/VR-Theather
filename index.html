@@ -101,10 +101,9 @@
     </button>
     <div id="start-sub">Enter Cinema</div>
     <div id="start-tip">
-      ✅ Wrist UI improvements:
-      <b>FLOAT</b> mode (menu becomes world-floating), <b>grab & rotate</b> with <b>RIGHT-hand squeeze</b>, then <b>ATTACH</b> to save offsets to wrist.<br>
-      ✅ More VR menu padding so nothing clips near edges.<br>
-      ✅ Host can change video URL and it loads for everyone.
+      ✅ HUD and Menu separated for easier VR interaction.<br>
+      ✅ High-fidelity UI visuals (Glows, Gradients, Glassmorphism).<br>
+      ✅ VR Screen aligns to your face (works laying down).
     </div>
   </div>
 
@@ -192,6 +191,7 @@
             <div class="slider-row"><label>Size</label><input type="range" id="input-scale" min="0.3" max="3.0" step="0.01" value="1.0"></div>
             <div class="slider-row"><label>Pos Y</label><input type="range" id="input-y" min="-4" max="4" step="0.1" value="0"></div>
             <div class="slider-row"><label>Z</label><input type="range" id="input-depth" min="-10" max="5" step="0.1" value="0"></div>
+            <div class="slider-row"><label>Rot X</label><input type="range" id="input-rotx" min="-90" max="90" step="1" value="0"></div>
             <div class="slider-row"><label>Curve</label><input type="range" id="input-curve" min="-2" max="2" step="0.01" value="0"></div>
             <div class="slider-row"><label>Round</label><input type="range" id="input-radius" min="0" max="0.25" step="0.01" value="0.05"></div>
             <div class="slider-row"><label>Feather</label><input type="range" id="input-softness" min="0" max="0.15" step="0.005" value="0.03"></div>
@@ -265,7 +265,7 @@
   </div>
 
   <video id="video-source" loop crossOrigin="anonymous" playsinline preload="auto" style="display:none">
-    <source id="video-default-src" src="https://192.168.1.22:8080/Arthur.mp4" type="video/mp4">
+    <source id="video-default-src" src="https://192.168.1.22:8080/MOVIENAME.mp4" type="video/mp4">
   </video>
 
   <script type="module">
@@ -289,11 +289,10 @@
       xrFoveation: 1.0,
       xrScaleFactor: 0.85,
 
-      // VR menu: more padding + larger canvas/plane so nothing clips
       menuCanvasW: 1100,
-      menuCanvasH: 680,
+      menuCanvasH: 720,
       menuWorldW: 0.66,
-      menuWorldH: 0.42,
+      menuWorldH: 0.44,
 
       hudCanvasW: 768,
       hudCanvasH: 160,
@@ -321,49 +320,25 @@
     const state = {
       version: 11,
 
-      // screen (proportional)
-      mScale: 1.0,
-      mY: 0.0,
-      mDepth: 0.0,
-      mCurve: 0.0,
-      mParallax: 0.0,
-      mRadius: 0.05,
-      mSoftness: 0.03,
+      mScale: 1.0, mY: 0.0, mDepth: 0.0, mRotX: 0.0,
+      mCurve: 0.0, mParallax: 0.0, mRadius: 0.05, mSoftness: 0.03,
 
-      // stereo
-      stereoMode: "mono",
-      swapEyes: false,
+      stereoMode: "mono", swapEyes: false,
+      paused: true, volume: 1.0,
 
-      // playback
-      paused: true,
-      volume: 1.0,
+      fxEnabled: false, fxScaleW: 1.0, fxScaleH: 1.0,
+      fxRadius: 0.05, fxSoftness: 0.03, fxIntensity: 0.55, fxBlur: 1.35,
 
-      // effects overlay
-      fxEnabled: false,
-      fxScaleW: 1.0,
-      fxScaleH: 1.0,
-      fxRadius: 0.05,
-      fxSoftness: 0.03,
-      fxIntensity: 0.55,
-      fxBlur: 1.35,
+      bgReactive: true, bgStrength: 1.0, bgSpeed: 0.12,
 
-      // reactive bg
-      bgReactive: true,
-      bgStrength: 1.0,
-      bgSpeed: 0.12,
-
-      // env world
       envRotX: 0.0, envRotY: 0.0, envRotZ: 0.0,
-      envSphere: 1.0,
-      envStars: 1.0,
+      envSphere: 1.0, envStars: 1.0,
       envPosX: 0.0, envPosY: 0.0, envPosZ: 0.0,
 
-      // wrist UI mode + transforms
-      uiMode: "wrist", // "wrist" | "float"
+      uiMode: "wrist", 
       uiHandPosX: 0.02, uiHandPosY: 0.02, uiHandPosZ: 0.08,
       uiHandRotX: -25, uiHandRotY: 0, uiHandRotZ: 0,
 
-      // world-floating transform (used when uiMode==="float")
       uiFloatPosX: 0.0, uiFloatPosY: 1.1, uiFloatPosZ: -1.2,
       uiFloatRotX: 0, uiFloatRotY: 0, uiFloatRotZ: 0,
 
@@ -371,41 +346,35 @@
     };
 
     const uiState = {
-      hoverId: null,
-      activeId: null,
-      dragging: false,
-      menuVisible: false,
-      _lastFrameMs: performance.now(),
-      _fpsSmoothed: 0,
-      _lastLabelTick: 0,
-      _hudRects: [],
+      hoverId: null, activeId: null, dragging: false, menuVisible: false,
+      _lastFrameMs: performance.now(), _fpsSmoothed: 0, _lastLabelTick: 0, _hudRects: [],
     };
 
     // ===================== VR MENU CONFIG =====================
-    // More padding: padX/padY bigger, rowH slightly bigger, so edges never clip.
     const uiConfig = [
       // Col 0: Screen + Wrist
       { type:"section", label:"SCREEN", col:0, row:0 },
       { type:"slider", label:"SIZE",   param:"mScale",   min:0.3, max:3.0, step:0.01, col:0, row:1, fmt:(v)=>v.toFixed(2) },
-      { type:"slider", label:"POS Y",  param:"mY",       min:-4,  max:4,   step:0.1,  col:0, row:2, fmt:(v)=>v.toFixed(1) },
-      { type:"slider", label:"Z",      param:"mDepth",   min:-10, max:5,   step:0.1,  col:0, row:3, fmt:(v)=>v.toFixed(1) },
-      { type:"slider", label:"CURVE",  param:"mCurve",   min:-2,  max:2,   step:0.01, col:0, row:4, fmt:(v)=>v.toFixed(2) },
-      { type:"slider", label:"ROUND",  param:"mRadius",  min:0.0, max:0.25,step:0.01, col:0, row:5, fmt:(v)=>v.toFixed(2) },
-      { type:"slider", label:"FEATHER",param:"mSoftness",min:0.0, max:0.15,step:0.005,col:0, row:6, fmt:(v)=>v.toFixed(3) },
-      { type:"slider", label:"3D DEP", param:"mParallax",min:-0.08,max:0.08,step:0.001,col:0,row:7, fmt:(v)=>v.toFixed(3) },
+      { type:"slider", label:"POS Y",  param:"mY",       min:-10,  max:10,   step:0.1,  col:0, row:2, fmt:(v)=>v.toFixed(1) },
+      { type:"slider", label:"Z",      param:"mDepth",   min:-20, max:25,   step:0.1,  col:0, row:3, fmt:(v)=>v.toFixed(1) },
+      { type:"slider", label:"ROT X",  param:"mRotX",    min:-90, max:90,  step:1,    col:0, row:4, fmt:(v)=>`${v.toFixed(0)}°` },
+      { type:"slider", label:"CURVE",  param:"mCurve",   min:-2,  max:2,   step:0.01, col:0, row:5, fmt:(v)=>v.toFixed(2) },
+      { type:"slider", label:"ROUND",  param:"mRadius",  min:0.0, max:0.25,step:0.01, col:0, row:6, fmt:(v)=>v.toFixed(2) },
+      { type:"slider", label:"FEATHER",param:"mSoftness",min:0.0, max:0.15,step:0.005,col:0, row:7, fmt:(v)=>v.toFixed(3) },
+      { type:"slider", label:"3D DEP", param:"mParallax",min:-0.08,max:0.08,step:0.001,col:0,row:8, fmt:(v)=>v.toFixed(3) },
 
-      { type:"section", label:"WRIST UI", col:0, row:8 },
-      { type:"buttonRow", id:"uimode", col:0, row:9, buttons:[
+      { type:"section", label:"WRIST UI", col:0, row:9 },
+      { type:"buttonRow", id:"uimode", col:0, row:10, buttons:[
         { id:"float",  label:"FLOAT",  onPress:()=>setUIMode("float") },
         { id:"attach", label:"ATTACH", onPress:()=>setUIMode("wrist") },
         { id:"reset",  label:"RESET",  onPress:()=>resetWristOffsets() },
       ]},
-      { type:"slider", label:"POS X", param:"uiHandPosX", min:-0.12, max:0.12, step:0.001, col:0, row:10, fmt:(v)=>v.toFixed(3) },
-      { type:"slider", label:"POS Y", param:"uiHandPosY", min:-0.12, max:0.12, step:0.001, col:0, row:11, fmt:(v)=>v.toFixed(3) },
-      { type:"slider", label:"POS Z", param:"uiHandPosZ", min:-0.12, max:0.12, step:0.001, col:0, row:12, fmt:(v)=>v.toFixed(3) },
-      { type:"slider", label:"ROT X", param:"uiHandRotX", min:-90, max:90, step:1, col:0, row:13, fmt:(v)=>`${v.toFixed(0)}°` },
-      { type:"slider", label:"ROT Y", param:"uiHandRotY", min:-180, max:180, step:1, col:0, row:14, fmt:(v)=>`${v.toFixed(0)}°` },
-      { type:"slider", label:"ROT Z", param:"uiHandRotZ", min:-90, max:90, step:1, col:0, row:15, fmt:(v)=>`${v.toFixed(0)}°` },
+      { type:"slider", label:"POS X", param:"uiHandPosX", min:-0.12, max:0.12, step:0.001, col:0, row:11, fmt:(v)=>v.toFixed(3) },
+      { type:"slider", label:"POS Y", param:"uiHandPosY", min:-0.12, max:0.12, step:0.001, col:0, row:12, fmt:(v)=>v.toFixed(3) },
+      { type:"slider", label:"POS Z", param:"uiHandPosZ", min:-0.12, max:0.12, step:0.001, col:0, row:13, fmt:(v)=>v.toFixed(3) },
+      { type:"slider", label:"ROT X", param:"uiHandRotX", min:-90, max:90, step:1, col:0, row:14, fmt:(v)=>`${v.toFixed(0)}°` },
+      { type:"slider", label:"ROT Y", param:"uiHandRotY", min:-180, max:180, step:1, col:0, row:15, fmt:(v)=>`${v.toFixed(0)}°` },
+      { type:"slider", label:"ROT Z", param:"uiHandRotZ", min:-90, max:90, step:1, col:0, row:16, fmt:(v)=>`${v.toFixed(0)}°` },
 
       // Col 1: Effects + BG
       { type:"section", label:"EFFECTS", col:1, row:0 },
@@ -439,6 +408,7 @@
       { type:"buttonRow", id:"tools", col:2, row:5, buttons:[
         { id:"center", label:"CENTER", onPress:()=>recenterScreenRig(config.vrScreenDistance) },
         { id:"hand",   label:"MENU HAND", onPress:()=>toggleMenuHand() },
+        { id:"exit",   label:"EXIT VR", onPress:()=>exitVR() }, 
       ]},
 
       { type:"section", label:"ENV", col:2, row:6 },
@@ -457,11 +427,9 @@
     const screenRig = new THREE.Group();
     let screenGeometry = null;
 
-    // Video
     let videoElement, videoTexture, videoMesh, videoMaterial;
     let fxMesh, fxMaterial;
 
-    // Environment
     const envGroup = new THREE.Group();
     let envBaseMat, envStarsMat;
     const bgSmoothed = new THREE.Color().copy(config.bgBase);
@@ -469,10 +437,7 @@
     let bgLastUpdateMs = 0;
     let bgAnalyzerBroken = false;
 
-    // Analyzer
     let analyzeCanvas, analyzeCtx;
-
-    // XR / controllers
     let inVR = false;
     let xrLeftUUID = null, xrRightUUID = null;
 
@@ -484,29 +449,37 @@
 
     const raycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
-
-    // Wrist UI group
     let wristUIGroup = null;
 
-    // Grab in FLOAT mode (right-hand squeeze)
     const grabState = {
-      active: false,
-      controller: null,
-      offset: new THREE.Matrix4(),
-      invCtrl: new THREE.Matrix4(),
-      tmp: new THREE.Matrix4(),
-      p: new THREE.Vector3(),
-      q: new THREE.Quaternion(),
-      s: new THREE.Vector3(1,1,1),
-      e: new THREE.Euler(0,0,0,"XYZ"),
+      active: false, controller: null, offset: new THREE.Matrix4(), invCtrl: new THREE.Matrix4(),
+      tmp: new THREE.Matrix4(), p: new THREE.Vector3(), q: new THREE.Quaternion(),
+      s: new THREE.Vector3(1,1,1), e: new THREE.Euler(0,0,0,"XYZ"),
     };
 
-    // VR canvases
     let menuCanvas, menuCtx, menuTex, menuMesh;
     let hudCanvas, hudCtx, hudTex, hudMesh;
     let uiRects = [];
     let uiDirtyMenu = true;
     let uiDirtyHud = true;
+
+    // ===================== CANVAS HELPERS =====================
+    function getBrandGradient(ctx, x1, y1, x2, y2) {
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0, "#00f2ff");
+      g.addColorStop(1, "#7000ff");
+      return g;
+    }
+
+    function roundRect(ctx, x, y, w, h, r){
+      ctx.beginPath();
+      ctx.moveTo(x+r, y);
+      ctx.arcTo(x+w, y, x+w, y+h, r);
+      ctx.arcTo(x+w, y+h, x, y+h, r);
+      ctx.arcTo(x, y+h, x, y, r);
+      ctx.arcTo(x, y, x+w, y, r);
+      ctx.closePath();
+    }
 
     // ===================== PERSISTENCE =====================
     let saveTimer = null;
@@ -774,7 +747,6 @@
       if (isHost) broadcast(payload); else sendToHost(payload);
     }
 
-    // Host-only broadcast for URL changes
     function emitNetLoad(){
       if (suppressNetwork) return;
       if (!peer || !roomCode) return;
@@ -938,7 +910,8 @@
       renderer.xr.enabled = true;
 
       container.appendChild(renderer.domElement);
-      document.body.appendChild(VRButton.createButton(renderer));
+      const sessionInit = { optionalFeatures: ['local-floor', 'bounded-floor'] };
+      document.body.appendChild(VRButton.createButton(renderer, sessionInit));
 
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
@@ -962,7 +935,7 @@
       loadSettings();
       applyStateToScene(true);
       syncDesktopFromState();
-      applyUIModeAndAttach(); // ensure correct mode after load
+      applyUIModeAndAttach();
       updateCurrentVideoURLLabel();
       updateUIModePill();
 
@@ -980,7 +953,6 @@
         updatePlayUI();
       });
 
-      // Playback sync hooks
       videoElement.addEventListener("play", ()=>{
         state.paused = false;
         updatePlayUI();
@@ -1006,6 +978,11 @@
       });
 
       updateNetUI("Offline");
+    }
+
+    function exitVR() {
+      const session = renderer.xr.getSession();
+      if (session) session.end();
     }
 
     // ===================== ENVIRONMENT =====================
@@ -1260,7 +1237,6 @@
       const menuGrip = menuController?.userData?.grip || null;
 
       if (mode === "float" && state.uiMode !== "float") {
-        // Convert current wrist UI world transform into float values and detach to scene
         wristUIGroup.updateMatrixWorld(true);
         const w = wristUIGroup.matrixWorld.clone();
         const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
@@ -1272,7 +1248,6 @@
         state.uiFloatRotY = THREE.MathUtils.radToDeg(e.y);
         state.uiFloatRotZ = THREE.MathUtils.radToDeg(e.z);
 
-        // Detach to scene
         if (wristUIGroup.parent) wristUIGroup.parent.remove(wristUIGroup);
         scene.add(wristUIGroup);
 
@@ -1284,9 +1259,7 @@
       }
 
       if (mode === "wrist" && state.uiMode !== "wrist") {
-        // Convert current float world transform to grip-local offsets and attach
         if (!menuGrip) {
-          // If no grip yet, just switch mode; will attach when grip exists
           state.uiMode = "wrist";
           scheduleSave(true);
           updateUIModePill();
@@ -1319,7 +1292,6 @@
         return;
       }
 
-      // Same mode: just re-apply
       applyUIModeAndAttach();
       updateUIModePill();
     }
@@ -1330,7 +1302,6 @@
       const menuGrip = menuController?.userData?.grip || null;
 
       if (state.uiMode === "float") {
-        // Ensure it is a scene child
         if (wristUIGroup.parent !== scene) {
           if (wristUIGroup.parent) wristUIGroup.parent.remove(wristUIGroup);
           scene.add(wristUIGroup);
@@ -1344,7 +1315,6 @@
         return;
       }
 
-      // Wrist mode
       if (menuGrip) {
         if (wristUIGroup.parent !== menuGrip) {
           if (wristUIGroup.parent) wristUIGroup.parent.remove(wristUIGroup);
@@ -1364,7 +1334,6 @@
       if (state.uiMode !== "float") return false;
       if (!wristUIGroup || !controller) return false;
 
-      // Raycast to HUD/MENU (children of wristUIGroup)
       tempMatrix.identity().extractRotation(controller.matrixWorld);
       raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
       raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
@@ -1379,7 +1348,7 @@
       wristUIGroup.updateMatrixWorld(true);
 
       grabState.invCtrl.copy(controller.matrixWorld).invert();
-      grabState.offset.multiplyMatrices(grabState.invCtrl, wristUIGroup.matrixWorld); // offset in controller space
+      grabState.offset.multiplyMatrices(grabState.invCtrl, wristUIGroup.matrixWorld);
 
       return true;
     }
@@ -1390,7 +1359,6 @@
 
       grabState.controller.updateMatrixWorld(true);
 
-      // wristWorld = controllerWorld * offset
       grabState.tmp.multiplyMatrices(grabState.controller.matrixWorld, grabState.offset);
       grabState.tmp.decompose(grabState.p, grabState.q, grabState.s);
 
@@ -1398,7 +1366,6 @@
       wristUIGroup.quaternion.copy(grabState.q);
       wristUIGroup.scale.copy(grabState.s);
 
-      // Update float state live (no spam save; save on release)
       state.uiFloatPosX = wristUIGroup.position.x;
       state.uiFloatPosY = wristUIGroup.position.y;
       state.uiFloatPosZ = wristUIGroup.position.z;
@@ -1420,7 +1387,6 @@
 
     // ===================== CANVAS UI =====================
     function createVirtualCanvasUI(){
-      // Menu canvas
       menuCanvas = document.createElement("canvas");
       menuCanvas.width = config.menuCanvasW;
       menuCanvas.height = config.menuCanvasH;
@@ -1439,7 +1405,6 @@
       menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(config.menuWorldW, config.menuWorldH), menuMat);
       menuMesh.visible = false;
 
-      // HUD canvas
       hudCanvas = document.createElement("canvas");
       hudCanvas.width = config.hudCanvasW;
       hudCanvas.height = config.hudCanvasH;
@@ -1458,17 +1423,16 @@
       hudMesh = new THREE.Mesh(new THREE.PlaneGeometry(config.hudWorldW, config.hudWorldH), hudMat);
       hudMesh.visible = true;
 
-      // Wrist group contains HUD + Menu
       wristUIGroup = new THREE.Group();
       wristUIGroup.name = "wristUIGroup";
 
-      // Face forward in local space
       hudMesh.rotation.set(0, 0, 0);
       menuMesh.rotation.set(0, 0, 0);
 
-      // Layout (HUD above, menu below)
-      hudMesh.position.set(0.0, 0.065, 0.0);
-      menuMesh.position.set(0.0, -0.085, 0.0); // slightly lower to give more separation
+      // Widened the gap here so they do not overlap
+      hudMesh.position.set(0.0, 0.16, 0.0);
+      menuMesh.position.set(0.0, -0.16, 0.0);
+
       wristUIGroup.add(hudMesh);
       wristUIGroup.add(menuMesh);
 
@@ -1482,8 +1446,6 @@
 
     function buildUIRects(uiConfig, width, height){
       const colW = width / 3;
-
-      // More padding so nothing clips
       const rowH = 34;
       const padX = 28;
       const padY = 104;
@@ -1558,47 +1520,48 @@
 
       ctx.clearRect(0,0,W,H);
 
-      // More inner padding so edges never clip
       const m = 18;
-
-      ctx.fillStyle = "rgba(15,16,32,0.92)";
-      roundRect(ctx, m, m, W-2*m, H-2*m, 18);
+      
+      // High-quality glassmorphism background
+      ctx.fillStyle = "rgba(10,11,16,0.85)";
+      roundRect(ctx, m, m, W-2*m, H-2*m, 24);
       ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
 
-      // Title
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.font = "700 26px Inter, system-ui, sans-serif";
-      ctx.fillText("VR CINEMA", 30, 54);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "800 28px Inter, system-ui, sans-serif";
+      ctx.fillText("VR CINEMA", 32, 58);
 
-      // Small mode line
       ctx.font = "700 13px Inter, system-ui, sans-serif";
       if (state.uiMode === "float") {
-        ctx.fillStyle = "rgba(0,242,255,0.75)";
-        ctx.fillText("UI: FLOAT (RIGHT SQUEEZE TO GRAB)", 30, 78);
+        ctx.fillStyle = "#00f2ff";
+        ctx.fillText("UI: FLOAT (RIGHT SQUEEZE TO GRAB)", 32, 82);
       } else {
-        ctx.fillStyle = "rgba(255,255,255,0.55)";
-        ctx.fillText("UI: WRIST", 30, 78);
-      }
-
-      // Room line (if any)
-      if (roomCode){
         ctx.fillStyle = "rgba(255,255,255,0.45)";
-        ctx.fillText(isHost ? `ROOM ${roomCode} (HOST)` : `ROOM ${roomCode} (GUEST)`, 30, 98);
+        ctx.fillText("UI: WRIST", 32, 82);
       }
 
-      // FPS
+      if (roomCode){
+        ctx.fillStyle = "rgba(255,255,255,0.40)";
+        ctx.fillText(isHost ? `ROOM ${roomCode} (HOST)` : `ROOM ${roomCode} (GUEST)`, 32, 102);
+      }
+
       if (state.showFPS){
         ctx.font = "700 20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-        ctx.fillStyle = "rgba(0,242,255,0.95)";
+        ctx.fillStyle = "#00f2ff";
+        ctx.shadowColor = "#00f2ff";
+        ctx.shadowBlur = 8;
         ctx.textAlign = "right";
-        ctx.fillText(`${uiState._fpsSmoothed.toFixed(0)} FPS`, W-30, 54);
+        ctx.fillText(`${uiState._fpsSmoothed.toFixed(0)} FPS`, W-32, 58);
         ctx.textAlign = "left";
+        ctx.shadowBlur = 0;
       }
 
-      // Separator
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
       ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(24, 112); ctx.lineTo(W-24, 112); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(28, 116); ctx.lineTo(W-28, 116); ctx.stroke();
 
       for (const r of uiRects) drawMenuItem(ctx, r);
 
@@ -1609,9 +1572,11 @@
       const hovered = uiState.menuVisible && uiState.hoverId === r.id;
 
       if (r.type === "section"){
-        ctx.fillStyle = "rgba(255,255,255,0.38)";
-        ctx.font = "700 14px Inter, system-ui, sans-serif";
+        ctx.fillStyle = getBrandGradient(ctx, r.x, 0, r.x+100, 0);
+        ctx.font = "800 13px Inter, system-ui, sans-serif";
         ctx.fillText(r.item.label, r.x, r.y + 15);
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        ctx.fillRect(r.x, r.y+22, r.w, 1);
         return;
       }
 
@@ -1620,32 +1585,35 @@
         ctx.fillStyle = "rgba(255,255,255,0.85)";
         ctx.fillText(r.item.label, r.x, r.y + 23);
 
-        ctx.fillStyle = hovered ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)";
-        roundRect(ctx, r.track.x, r.track.y, r.track.w, 6, 6); ctx.fill();
+        ctx.fillStyle = hovered ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)";
+        roundRect(ctx, r.track.x, r.track.y, r.track.w, 8, 4); ctx.fill();
 
         const t = (state[r.item.param] - r.item.min) / (r.item.max - r.item.min);
         const tt = clamp01(t);
         const fillW = tt * r.track.w;
 
-        ctx.fillStyle = "rgba(0,242,255,0.75)";
-        roundRect(ctx, r.track.x, r.track.y, fillW, 6, 6); ctx.fill();
+        ctx.fillStyle = getBrandGradient(ctx, r.track.x, 0, r.track.x + r.track.w, 0);
+        roundRect(ctx, r.track.x, r.track.y, fillW, 8, 4); ctx.fill();
 
         const hx = r.track.x + fillW;
-        const hy = r.track.y + 3;
-        ctx.beginPath(); ctx.arc(hx, hy, 6.5, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(0,242,255,1)";
+        const hy = r.track.y + 4;
+        ctx.beginPath(); ctx.arc(hx, hy, 8, 0, Math.PI*2);
+        ctx.fillStyle = "#fff";
+        ctx.shadowColor = "#00f2ff";
+        ctx.shadowBlur = hovered ? 12 : 5;
         ctx.fill();
+        ctx.shadowBlur = 0; // reset
 
-        ctx.fillStyle = "rgba(255,255,255,0.72)";
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
         ctx.textAlign = "right";
         const fmt = r.item.fmt ?? ((v)=>String(v));
         ctx.fillText(fmt(state[r.item.param]), r.x + r.w - 8, r.y + 23);
         ctx.textAlign = "left";
 
         if (hovered){
-          ctx.strokeStyle = "rgba(0,242,255,0.55)";
-          ctx.lineWidth = 2;
-          roundRect(ctx, r.x-8, r.y+4, r.w+16, r.h-8, 10);
+          ctx.strokeStyle = "rgba(0,242,255,0.3)";
+          ctx.lineWidth = 1;
+          roundRect(ctx, r.x-6, r.y+4, r.w+12, r.h-8, 8);
           ctx.stroke();
         }
         return;
@@ -1658,19 +1626,24 @@
 
         const on = !!state[r.item.param];
         const bx = r.x + r.w - 74;
-        const by = r.y + 7;
+        const by = r.y + 6;
 
-        ctx.fillStyle = on ? "rgba(0,242,255,0.8)" : "rgba(255,255,255,0.12)";
-        roundRect(ctx, bx, by, 56, 18, 9); ctx.fill();
+        ctx.fillStyle = on ? getBrandGradient(ctx, bx, 0, bx+56, 0) : "rgba(0,0,0,0.5)";
+        roundRect(ctx, bx, by, 56, 22, 11); ctx.fill();
 
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        ctx.beginPath(); ctx.arc(on ? bx+42 : bx+14, by+9, 8, 0, Math.PI*2);
+        ctx.beginPath(); ctx.arc(on ? bx+44 : bx+12, by+11, 8, 0, Math.PI*2);
+        ctx.fillStyle = "#fff";
+        if(on) {
+          ctx.shadowColor = "#00f2ff";
+          ctx.shadowBlur = 8;
+        }
         ctx.fill();
+        ctx.shadowBlur = 0; // reset
 
         if (hovered){
-          ctx.strokeStyle = "rgba(0,242,255,0.55)";
-          ctx.lineWidth = 2;
-          roundRect(ctx, r.x-8, r.y+4, r.w+16, r.h-8, 10);
+          ctx.strokeStyle = "rgba(0,242,255,0.3)";
+          ctx.lineWidth = 1;
+          roundRect(ctx, r.x-6, r.y+4, r.w+12, r.h-8, 8);
           ctx.stroke();
         }
         return;
@@ -1682,32 +1655,35 @@
         ctx.fillText(r.item.label, r.x, r.y + 23);
 
         const timeStr = `${fmtTime(videoElement.currentTime)} / ${fmtTime(videoElement.duration)}`;
-        ctx.fillStyle = "rgba(255,255,255,0.60)";
+        ctx.fillStyle = "rgba(255,255,255,0.50)";
         ctx.textAlign = "right";
         ctx.font = "700 12px Inter, system-ui, sans-serif";
         ctx.fillText(timeStr, r.x + r.w - 8, r.y + 23);
         ctx.textAlign = "left";
 
-        ctx.fillStyle = hovered ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)";
-        roundRect(ctx, r.track.x, r.track.y, r.track.w, 6, 6); ctx.fill();
+        ctx.fillStyle = hovered ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)";
+        roundRect(ctx, r.track.x, r.track.y, r.track.w, 8, 4); ctx.fill();
 
         const dur = videoElement.duration;
         const t = (isFinite(dur) && dur > 0) ? clamp01(videoElement.currentTime / dur) : 0;
         const fillW = t * r.track.w;
 
-        ctx.fillStyle = "rgba(0,242,255,0.75)";
-        roundRect(ctx, r.track.x, r.track.y, fillW, 6, 6); ctx.fill();
+        ctx.fillStyle = getBrandGradient(ctx, r.track.x, 0, r.track.x + r.track.w, 0);
+        roundRect(ctx, r.track.x, r.track.y, fillW, 8, 4); ctx.fill();
 
         const hx = r.track.x + fillW;
-        const hy = r.track.y + 3;
-        ctx.beginPath(); ctx.arc(hx, hy, 6.5, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(0,242,255,1)";
+        const hy = r.track.y + 4;
+        ctx.beginPath(); ctx.arc(hx, hy, 8, 0, Math.PI*2);
+        ctx.fillStyle = "#fff";
+        ctx.shadowColor = "#00f2ff";
+        ctx.shadowBlur = hovered ? 12 : 5;
         ctx.fill();
+        ctx.shadowBlur = 0; // reset
 
         if (hovered){
-          ctx.strokeStyle = "rgba(0,242,255,0.55)";
-          ctx.lineWidth = 2;
-          roundRect(ctx, r.x-8, r.y+4, r.w+16, r.h-8, 10);
+          ctx.strokeStyle = "rgba(0,242,255,0.3)";
+          ctx.lineWidth = 1;
+          roundRect(ctx, r.x-6, r.y+4, r.w+12, r.h-8, 8);
           ctx.stroke();
         }
         return;
@@ -1718,11 +1694,25 @@
           const bHovered = uiState.menuVisible && uiState.hoverId === b.id;
           const active = isButtonActive(b);
 
-          ctx.fillStyle = active ? "rgba(0,242,255,0.90)" : (bHovered ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.10)");
-          roundRect(ctx, b.x, b.y, b.w, b.h, 10); ctx.fill();
+          ctx.shadowBlur = active ? 12 : (bHovered ? 8 : 0);
+          ctx.shadowColor = active ? "#00f2ff" : (bHovered ? "rgba(255,255,255,0.15)" : "transparent");
 
-          ctx.fillStyle = active ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.88)";
-          ctx.font = "700 13px Inter, system-ui, sans-serif";
+          if (active) {
+            ctx.fillStyle = getBrandGradient(ctx, b.x, 0, b.x+b.w, 0);
+          } else {
+            ctx.fillStyle = bHovered ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)";
+          }
+          roundRect(ctx, b.x, b.y, b.w, b.h, 10); ctx.fill();
+          
+          if (!active) {
+            ctx.strokeStyle = "rgba(255,255,255,0.1)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+          ctx.shadowBlur = 0; // reset
+
+          ctx.fillStyle = active ? "#000" : "rgba(255,255,255,0.9)";
+          ctx.font = active ? "800 13px Inter, system-ui, sans-serif" : "700 13px Inter, system-ui, sans-serif";
           ctx.textAlign = "center";
           ctx.fillText(buttonLabelFor(b), b.x + b.w/2, b.y + 16);
           ctx.textAlign = "left";
@@ -1739,17 +1729,21 @@
 
       ctx.clearRect(0,0,W,H);
 
-      ctx.fillStyle = "rgba(15,16,32,0.88)";
-      roundRect(ctx, 10, 10, W-20, H-20, 18); ctx.fill();
+      // High-quality glassmorphism background
+      ctx.fillStyle = "rgba(10,11,16,0.85)";
+      roundRect(ctx, 10, 10, W-20, H-20, 24); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.15)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
-      ctx.fillStyle = "rgba(255,255,255,0.90)";
-      ctx.font = "700 18px Inter, system-ui, sans-serif";
-      ctx.fillText("HUD", 24, 40);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "800 18px Inter, system-ui, sans-serif";
+      ctx.fillText("HUD", 28, 42);
 
       ctx.font = "700 14px Inter, system-ui, sans-serif";
-      ctx.fillStyle = "rgba(255,255,255,0.65)";
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
       ctx.textAlign = "right";
-      ctx.fillText(`${fmtTime(videoElement.currentTime)} / ${fmtTime(videoElement.duration)}`, W-24, 40);
+      ctx.fillText(`${fmtTime(videoElement.currentTime)} / ${fmtTime(videoElement.duration)}`, W-28, 42);
       ctx.textAlign = "left";
 
       const btns = [
@@ -1766,11 +1760,20 @@
 
       for (const b of uiState._hudRects){
         const hovered = uiState.hoverId === b.id;
-        ctx.fillStyle = hovered ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.10)";
-        roundRect(ctx, b.x, b.y, b.w, b.h, 14); ctx.fill();
+        
+        ctx.shadowBlur = hovered ? 15 : 0;
+        ctx.shadowColor = hovered ? "#00f2ff" : "transparent";
+        ctx.fillStyle = hovered ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)";
+        
+        roundRect(ctx, b.x, b.y, b.w, b.h, 16); ctx.fill();
+        
+        ctx.strokeStyle = hovered ? "rgba(0,242,255,0.5)" : "rgba(255,255,255,0.1)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.shadowBlur = 0; // reset
 
-        ctx.fillStyle = "rgba(255,255,255,0.90)";
-        ctx.font = "700 16px Inter, system-ui, sans-serif";
+        ctx.fillStyle = "rgba(255,255,255,0.95)";
+        ctx.font = "800 16px Inter, system-ui, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(b.label, b.x + b.w/2, b.y + 32);
         ctx.textAlign = "left";
@@ -1814,13 +1817,11 @@
       controller.addEventListener("squeezestart", ()=>{
         controller.userData.isSqueezing = true;
 
-        // Menu toggle only on MENU HAND (wrist hand)
         if (controller === menuController) {
           setMenuVisible(!uiState.menuVisible);
           return;
         }
 
-        // Grab only on POINTER HAND (right) when FLOAT mode
         if (controller === pointerController) {
           if (tryStartGrab(controller)) {
             hapticPulse(controller, 0.18, 18);
@@ -1846,7 +1847,6 @@
         assignControllerRoles();
       });
 
-      // Pointer line (right hand)
       const pointerGeo = new THREE.BufferGeometry().setFromPoints([ new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1) ]);
       const pointerMat = new THREE.LineBasicMaterial({ color: 0x00f2ff });
       const pointer = new THREE.Line(pointerGeo, pointerMat);
@@ -1873,7 +1873,6 @@
         if (c.userData.pointerLine) c.userData.pointerLine.visible = (c === pointerController);
       });
 
-      // Apply UI mode attachment based on current menu hand
       applyUIModeAndAttach();
     }
 
@@ -1947,7 +1946,7 @@
 
       screenRig.position.copy(target);
       screenRig.lookAt(camPos);
-      screenRig.rotation.x = 0;
+      
       screenRig.rotation.z = 0;
     }
 
@@ -1962,7 +1961,6 @@
       updateDesktopTimeUI(nowMs);
       updateReactiveBackground(nowMs);
 
-      // Host periodic sync
       if (peer && roomCode && isHost && !videoElement.paused) {
         if (nowMs - lastHostSyncMs > config.netSyncIntervalMs) {
           lastHostSyncMs = nowMs;
@@ -1970,10 +1968,8 @@
         }
       }
 
-      // Update float grab
       updateGrab();
 
-      // VR pointer interactions
       if (pointerController) updatePointerInteraction(pointerController);
 
       const labelTick = (nowMs - uiState._lastLabelTick) > 150;
@@ -1992,7 +1988,6 @@
 
     // ===================== INTERACTION =====================
     function updatePointerInteraction(controller){
-      // If grabbing, don't also click UI
       if (grabState.active) return;
 
       tempMatrix.identity().extractRotation(controller.matrixWorld);
@@ -2172,7 +2167,6 @@
       if (Math.abs(prev - stepped) > 1e-6){
         state[r.item.param] = stepped;
 
-        // Wrist sliders: apply to wrist only if in wrist mode; if float mode, they still adjust wrist offsets (for later attach)
         if (r.item.param.startsWith("uiHand")) {
           if (state.uiMode === "wrist") applyUIModeAndAttach();
         }
@@ -2222,12 +2216,13 @@
       videoMesh.position.z = state.mDepth;
       fxMesh.position.z = state.mDepth - 1.5;
 
-      // Screen uniforms
+      videoMesh.rotation.x = THREE.MathUtils.degToRad(state.mRotX);
+      fxMesh.rotation.x = THREE.MathUtils.degToRad(state.mRotX);
+
       videoMaterial.uniforms.uCurve.value = state.mCurve;
       videoMaterial.uniforms.uRadius.value = state.mRadius;
       videoMaterial.uniforms.uSoftness.value = state.mSoftness;
 
-      // Stereo/parallax (shared)
       const modeInt = state.stereoMode === "sbs" ? 1 : (state.stereoMode === "ou" ? 2 : 0);
       const swapInt = state.swapEyes ? 1 : 0;
 
@@ -2291,12 +2286,10 @@
         deleteCookie(COOKIE_KEY);
       });
 
-      // PeerJS
       document.getElementById("btn-host-room").addEventListener("click", ()=>hostRoom(document.getElementById("input-room").value));
       document.getElementById("btn-join-room").addEventListener("click", ()=>joinRoom(document.getElementById("input-room").value));
       document.getElementById("btn-leave-room").addEventListener("click", ()=>disconnectRoom());
 
-      // Host URL load
       document.getElementById("btn-load-url").addEventListener("click", ()=>{
         const url = (document.getElementById("input-video-url").value || "").trim();
         if (!url) return;
@@ -2309,12 +2302,10 @@
         loadVideoURL(url, { userInitiated:true });
       });
 
-      // Wrist UI buttons
       document.getElementById("btn-ui-float").addEventListener("click", ()=>{ setUIMode("float"); scheduleSave(true); updateUIModePill(); });
       document.getElementById("btn-ui-attach").addEventListener("click", ()=>{ setUIMode("wrist"); scheduleSave(true); updateUIModePill(); });
       document.getElementById("btn-ui-reset").addEventListener("click", ()=>{ resetWristOffsets(); scheduleSave(true); updateUIModePill(); });
 
-      // Seek bar
       let scrubbing = false;
       const seek = document.getElementById("input-seek");
       seek.addEventListener("pointerdown", ()=>scrubbing=true);
@@ -2325,7 +2316,6 @@
         if (scrubbing && isFinite(t)) videoElement.currentTime = t;
       });
 
-      // Basic
       document.getElementById("input-stereo-mode").addEventListener("change", (e)=>{
         state.stereoMode = e.target.value;
         applyStateToScene(false);
@@ -2359,6 +2349,7 @@
       wireSlider("input-scale",    (v)=>{ state.mScale = v; applyStateToScene(false); scheduleSave(); });
       wireSlider("input-y",        (v)=>{ state.mY = v; applyStateToScene(false); scheduleSave(); });
       wireSlider("input-depth",    (v)=>{ state.mDepth = v; applyStateToScene(false); scheduleSave(); });
+      wireSlider("input-rotx",     (v)=>{ state.mRotX = v; applyStateToScene(false); scheduleSave(); });
       wireSlider("input-curve",    (v)=>{ state.mCurve = v; applyStateToScene(false); scheduleSave(); });
       wireSlider("input-radius",   (v)=>{ state.mRadius = v; applyStateToScene(false); scheduleSave(); });
       wireSlider("input-softness", (v)=>{ state.mSoftness = v; applyStateToScene(false); scheduleSave(); });
@@ -2386,7 +2377,7 @@
       wireSlider("input-bg-strength",(v)=>{ state.bgStrength = v; scheduleSave(); });
       wireSlider("input-bg-speed",(v)=>{ state.bgSpeed = v; scheduleSave(); });
 
-      // Wrist offsets (wrist mode)
+      // Wrist offsets
       wireSlider("input-ui-posx",(v)=>{ state.uiHandPosX = v; if (state.uiMode==="wrist") applyUIModeAndAttach(); scheduleSave(); });
       wireSlider("input-ui-posy",(v)=>{ state.uiHandPosY = v; if (state.uiMode==="wrist") applyUIModeAndAttach(); scheduleSave(); });
       wireSlider("input-ui-posz",(v)=>{ state.uiHandPosZ = v; if (state.uiMode==="wrist") applyUIModeAndAttach(); scheduleSave(); });
@@ -2394,13 +2385,12 @@
       wireSlider("input-ui-roty",(v)=>{ state.uiHandRotY = v; if (state.uiMode==="wrist") applyUIModeAndAttach(); scheduleSave(); });
       wireSlider("input-ui-rotz",(v)=>{ state.uiHandRotZ = v; if (state.uiMode==="wrist") applyUIModeAndAttach(); scheduleSave(); });
 
-      // File load/reset
       const fileInput = document.getElementById("input-file");
       fileInput.addEventListener("change", (e)=>{
         const file = e.target.files?.[0];
         if (!file) return;
         const url = URL.createObjectURL(file);
-        loadVideoURL(url, { userInitiated:true }); // blob won't broadcast
+        loadVideoURL(url, { userInitiated:true });
       });
 
       document.getElementById("btn-reset-video").addEventListener("click", ()=>{
@@ -2434,6 +2424,7 @@
       document.getElementById("input-scale").value = state.mScale;
       document.getElementById("input-y").value = state.mY;
       document.getElementById("input-depth").value = state.mDepth;
+      document.getElementById("input-rotx").value = state.mRotX;
       document.getElementById("input-curve").value = state.mCurve;
       document.getElementById("input-radius").value = state.mRadius;
       document.getElementById("input-softness").value = state.mSoftness;
@@ -2572,16 +2563,6 @@
       const m = Math.floor(s/60);
       const ss = Math.floor(s%60);
       return `${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
-    }
-
-    function roundRect(ctx, x, y, w, h, r){
-      ctx.beginPath();
-      ctx.moveTo(x+r, y);
-      ctx.arcTo(x+w, y, x+w, y+h, r);
-      ctx.arcTo(x+w, y+h, x, y+h, r);
-      ctx.arcTo(x, y+h, x, y, r);
-      ctx.arcTo(x, y, x+w, y, r);
-      ctx.closePath();
     }
 
     // ===================== NET PILL =====================
