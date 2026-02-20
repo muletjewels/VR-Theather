@@ -24,6 +24,8 @@
       position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
       width:min(1180px,92vw);
       z-index:10;pointer-events:none;
+      max-height: 100vh;
+      overflow: auto;
     }
     .hud{
       pointer-events:auto;
@@ -265,7 +267,7 @@
   </div>
 
   <video id="video-source" loop crossOrigin="anonymous" playsinline preload="auto" style="display:none">
-    <source id="video-default-src" src="https://192.168.1.22:8080/MOVIENAME.mp4" type="video/mp4">
+    <source id="video-default-src" src="https://192.168.1.22:8080/moviename.mp4" type="video/mp4">
   </video>
 
   <script type="module">
